@@ -2,7 +2,7 @@ module Test.Main
   ( main
   ) where
 
-import Control.Monad.Aff (launchAff, forkAff)
+import Control.Monad.Aff (launchAff, forkAff, later')
 import Control.Monad.Eff.Class (liftEff)
 import Control.Monad.Eff.Console (logShow)
 import Control.Skull (Batcher, newState, request)
@@ -16,9 +16,11 @@ import Prelude
 
 main = launchAff do
   state <- liftEff $ newState batcher
-  for_ (1 .. 10) \i -> forkAff do
-    res <- request state i
-    liftEff $ logShow res
+  for_ (0 .. 5) \i -> do
+    for_ (0 .. 9) \j -> forkAff do
+      res <- request state (10 * i + j)
+      liftEff $ logShow res
+    later' 250 $ pure unit
 
 --batcher :: ∀ eff. Batcher Int Int (List Int) (List Int) Int eff
 batcher =
