@@ -16,8 +16,8 @@ import Control.Skull (State, request)
 import Prelude
 
 -- | An applicative functor that adds requests to a batch in parallel.
-newtype SkullA req res eff a =
-  SkullA (ReaderT (State req res eff) (ParAff eff) a)
+newtype SkullA eff req res a =
+  SkullA (ReaderT (State eff req res) (ParAff eff) a)
 
 derive newtype instance functorSkullA     :: Functor     (SkullA req res eff)
 derive newtype instance applySkullA       :: Apply       (SkullA req res eff)
@@ -25,15 +25,15 @@ derive newtype instance applicativeSkullA :: Applicative (SkullA req res eff)
 
 -- | Natural transformation from `SkullA` to `Aff` using some state.
 runSkullA
-  :: ∀ req res eff a
-   . SkullA req res eff a
-  -> State req res eff
+  :: ∀ eff req res a
+   . SkullA eff req res a
+  -> State eff req res
   -> Aff eff a
 runSkullA (SkullA a) s = sequential $ runReaderT a s
 
 -- | Add a request to the request batch in the applicative functor.
 requestA
-  :: ∀ req res eff
+  :: ∀ req eff res
    . req
-  -> SkullA req res (avar :: AVAR, ref :: REF | eff) res
+  -> SkullA (avar :: AVAR, ref :: REF | eff) req res res
 requestA req = SkullA $ parallel $ Reader.ask >>= liftAff <<< request `flip` req

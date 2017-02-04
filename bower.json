@@ -13,7 +13,8 @@
     "purescript-transformers": "^2.2.0",
     "purescript-parallel": "^2.1.0",
     "purescript-unsafe-coerce": "^2.0.0",
-    "purescript-maybe": "^2.0.1"
+    "purescript-maybe": "^2.0.1",
+    "purescript-profunctor": "^2.0.0"
   },
   "devDependencies": {
     "purescript-console": "^2.0.0"

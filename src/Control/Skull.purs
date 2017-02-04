@@ -14,6 +14,7 @@ import Control.Monad.Aff.AVar (AVAR, AVar, makeVar, putVar, takeVar)
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Class (liftEff)
 import Control.Monad.Eff.Ref (REF, Ref, modifyRef', newRef)
+import Data.Profunctor (class Profunctor)
 import Data.Time.Duration (Milliseconds)
 import Data.List (List(Nil), (:))
 import Data.List as List
@@ -32,7 +33,7 @@ import Unsafe.Coerce (unsafeCoerce)
 -- | 2. How to unbatch responses.
 -- | 3. How to execute a request batch.
 -- | 4. How long to wait before a request batch is executed.
-type Batcher req res reqBatch resBatch key eff =
+type Batcher eff req res reqBatch resBatch key =
   { emptyBatch    :: reqBatch
   , maxBatchDelay :: Maybe Milliseconds
   , addRequest    :: req -> reqBatch -> Tuple reqBatch key
@@ -44,39 +45,46 @@ type Batcher req res reqBatch resBatch key eff =
 
 -- | A state keeps track of a request batch and maps requests to pending
 -- | invocations of `request`.
-foreign import data State :: Type -> Type -> # Effect -> Type
+foreign import data State :: # Effect -> Type -> Type -> Type
 
-data StateF req res reqBatch resBatch key eff =
-  StateF (Batcher req res reqBatch resBatch key eff)
+instance profunctorState :: Profunctor (State eff) where
+  dimap i o s = runState s \(StateF batcher batchRef pendingRef) ->
+    let batcher' = batcher { addRequest  = \r b -> batcher.addRequest (i r) b
+                           , getResponse = \k b -> o (batcher.getResponse k b)
+                           }
+    in makeState (StateF batcher' batchRef pendingRef)
+
+data StateF eff req res reqBatch resBatch key =
+  StateF (Batcher eff req res reqBatch resBatch key)
          (Ref reqBatch)
          (Ref (List (AVar resBatch)))
 
 makeState
-  :: ∀ req res reqBatch resBatch key eff
-   . StateF req res reqBatch resBatch key eff
-  -> State req res eff
+  :: ∀ eff req res reqBatch resBatch key
+   . StateF eff req res reqBatch resBatch key
+  -> State eff req res
 makeState = unsafeCoerce
 
 runState
-  :: ∀ req res eff a
-   . State req res eff
-  -> (∀ reqBatch resBatch key. StateF req res reqBatch resBatch key eff -> a)
+  :: ∀ eff req res a
+   . State eff req res
+  -> (∀ reqBatch resBatch key. StateF eff req res reqBatch resBatch key -> a)
   -> a
 runState = flip unsafeCoerce
 
 -- | Create new state given a batcher. Use `request` to add requests to the
 -- | request batch in this state.
 newState
-  :: ∀ req res reqBatch resBatch key eff eff'
-   . Batcher req res reqBatch resBatch key eff
-  -> Eff (ref :: REF | eff') (State req res eff)
+  :: ∀ eff req res reqBatch resBatch key eff'
+   . Batcher eff req res reqBatch resBatch key
+  -> Eff (ref :: REF | eff') (State eff req res)
 newState b = makeState <$> (StateF b <$> newRef b.emptyBatch <*> newRef Nil)
 
 -- | Perform the request batch immediately. Note that this may call
 -- | `executeBatch` even when the request batch is empty.
 flush
-  :: ∀ req res eff
-   . State req res (avar :: AVAR, ref :: REF | eff)
+  :: ∀ eff req res
+   . State (avar :: AVAR, ref :: REF | eff) req res
   -> Aff (avar :: AVAR, ref :: REF | eff) Unit
 flush s = runState s \(StateF batcher batchRef pendingRef) -> do
   {reqBatch, pending} <- liftEff do
@@ -96,8 +104,8 @@ flush s = runState s \(StateF batcher batchRef pendingRef) -> do
 -- | invocations happen in parallel, either though `forkAff`, `parTraverse` and
 -- | friends, or the applicative interface in `Control.Applicative.Skull`.
 request
-  :: ∀ req res eff
-   . State req res (avar :: AVAR, ref :: REF | eff)
+  :: ∀ eff req res
+   . State (avar :: AVAR, ref :: REF | eff) req res
   -> req
   -> Aff (avar :: AVAR, ref :: REF | eff) res
 request state req = runState state \(StateF batcher batchRef pendingRef) -> do
