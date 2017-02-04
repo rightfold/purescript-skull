@@ -4,6 +4,7 @@ module Control.Skull
 
   , State
   , newState
+  , flush
   , request
   ) where
 
@@ -15,6 +16,7 @@ import Control.Monad.Eff.Ref (REF, Ref, modifyRef', newRef)
 import Data.Time.Duration (Milliseconds)
 import Data.List (List(Nil), (:))
 import Data.List as List
+import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse_)
 import Data.Tuple (Tuple)
 import Data.Tuple.Nested ((/\))
@@ -26,12 +28,15 @@ import Unsafe.Coerce (unsafeCoerce)
 -- | A batcher tells Skull how to combine requests into request batches and how
 -- | to dissect response batches into responses. It also configures the delay
 -- | that Skull will wait before sending the request batch.
+-- |
+-- | If `maxBatchDelay` is `Nothing`, you must explicitly call `flush` to
+-- | perform the batch when you are ready.
 type Batcher req res reqBatch resBatch key eff =
-  { emptyBatch   :: reqBatch
-  , maxBatchSize :: Milliseconds
-  , addRequest   :: req -> reqBatch -> Tuple reqBatch key
-  , getResponse  :: key -> resBatch -> res
-  , executeBatch :: reqBatch -> Aff eff resBatch
+  { emptyBatch    :: reqBatch
+  , maxBatchDelay :: Maybe Milliseconds
+  , addRequest    :: req -> reqBatch -> Tuple reqBatch key
+  , getResponse   :: key -> resBatch -> res
+  , executeBatch  :: reqBatch -> Aff eff resBatch
   }
 
 --------------------------------------------------------------------------------
@@ -53,10 +58,10 @@ makeState = unsafeCoerce
 
 runState
   :: ∀ req res eff a
-   . (∀ reqBatch resBatch key. StateF req res reqBatch resBatch key eff -> a)
-  -> State req res eff
+   . State req res eff
+  -> (∀ reqBatch resBatch key. StateF req res reqBatch resBatch key eff -> a)
   -> a
-runState = unsafeCoerce
+runState = flip unsafeCoerce
 
 -- | Create new state given a batcher.
 newState
@@ -65,13 +70,32 @@ newState
   -> Eff (ref :: REF | eff') (State req res eff)
 newState b = makeState <$> (StateF b <$> newRef b.emptyBatch <*> newRef Nil)
 
+-- | Perform the pending request batch immediately. Note that this may call
+-- | `executeBatch` even when there are no pending requests.
+flush
+  :: ∀ req res eff
+   . State req res (avar :: AVAR, ref :: REF | eff)
+  -> Aff (avar :: AVAR, ref :: REF | eff) Unit
+flush s = runState s \(StateF batcher batchRef pendingRef) -> do
+  {reqBatch, pending} <- liftEff do
+    reqBatch <- modifyRef' batchRef \batch ->
+      {state: batcher.emptyBatch, value: batch}
+
+    pending <- modifyRef' pendingRef \pending ->
+      {state: Nil, value: pending}
+
+    pure {reqBatch, pending}
+  resBatch <- batcher.executeBatch reqBatch
+
+  traverse_ (putVar `flip` resBatch) pending
+
 -- | Add a new request to the pending request batch.
 request
   :: ∀ req res eff
    . State req res (avar :: AVAR, ref :: REF | eff)
   -> req
   -> Aff (avar :: AVAR, ref :: REF | eff) res
-request = flip \req -> runState \(StateF batcher batchRef pendingRef) -> do
+request state req = runState state \(StateF batcher batchRef pendingRef) -> do
   resBatchVar <- makeVar
 
   {key, alreadyPending} <- liftEff do
@@ -84,21 +108,13 @@ request = flip \req -> runState \(StateF batcher batchRef pendingRef) -> do
 
     pure {key, alreadyPending}
 
-  when (not alreadyPending) $
-    void $ forkAff do
-      sleep batcher.maxBatchSize
-
-      {reqBatch, pending} <- liftEff do
-        reqBatch <- modifyRef' batchRef \batch ->
-          {state: batcher.emptyBatch, value: batch}
-
-        pending <- modifyRef' pendingRef \pending ->
-          {state: Nil, value: pending}
-
-        pure {reqBatch, pending}
-      resBatch <- batcher.executeBatch reqBatch
-
-      traverse_ (putVar `flip` resBatch) pending
+  case batcher.maxBatchDelay of
+    Nothing -> pure unit
+    Just delay ->
+      when (not alreadyPending) $
+        void $ forkAff do
+          sleep delay
+          flush state
 
   resBatch <- takeVar resBatchVar
   pure $ batcher.getResponse key resBatch
