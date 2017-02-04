@@ -3,53 +3,51 @@ module Test.Main
   ) where
 
 import Control.Applicative.Skull (requestA, runSkullA, runSkullA')
-import Control.Monad.Aff (forkAff, launchAff, later')
 import Control.Monad.Eff.Class (liftEff)
-import Control.Monad.Eff.Console (log, logShow)
+import Control.Monad.Eff.Random (randomInt, randomRange)
 import Control.Parallel (parTraverse_)
-import Control.Skull (flush, newState, request)
-import Data.List (List(Nil), (:), (..))
-import Data.List as List
+import Control.Skull (Batcher, newState, request)
+import Data.Array as Array
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Time.Duration (Milliseconds(..))
 import Data.Traversable (for_)
 import Data.Tuple.Nested ((/\))
 import Prelude
+import Test.Unit (test)
+import Test.Unit.Assert as Assert
+import Test.Unit.Main (runTest)
 
-main = launchAff do
-  do
-    state <- liftEff $ newState (batcher 22.0)
+main = runTest do
+  testCases "request" \state req -> do
+      res <- request state req
+      Assert.equal req res
 
-    forkAff do
-      for_ (0 .. 25) \_ -> do
-        later' 100 $ pure unit
-        flush state
+  testCases "requestA" \state req -> do
+      let skullA = (*) <$> requestA req <*> requestA (req + 1)
+      res <- runSkullA skullA state
+      Assert.equal (req * (req + 1)) res
 
-    for_ (0 .. 5) \i -> do
-      flip parTraverse_ (0 .. 9) \j -> do
-        later' (i * j) $ pure unit
-        res <- request state (10 * i + j)
-        liftEff $ logShow res
-      later' 250 $ pure unit
+  testCases "requestA'" \state req -> do
+      let skullA = (*) <$> requestA req <*> requestA (req + 1)
+      res <- runSkullA' skullA state
+      Assert.equal (req * (req + 1)) res
 
-  do
-    liftEff $ log "runSkullA"
-    state <- liftEff $ newState (batcher 1000.0)
-    let sumA = (+) <$> requestA 1 <*> requestA 2
-    sum <- runSkullA sumA state
-    liftEff $ logShow sum
+testCases label go =
+  for_ (0 `to` 100) \i -> test (label <> " #" <> show i) do
+    maxBatchDelay <- liftEff $ randomRange 0.0 100.0
+    n <- liftEff $ randomInt 0 100
+    state <- liftEff $ newState (batcher maxBatchDelay)
+    parTraverse_ (go state) (0 `to` n)
 
-  do
-    liftEff $ log "runSkullA'"
-    state <- liftEff $ newState (batcher 1000.0)
-    let sumA = (+) <$> requestA 1 <*> requestA 2
-    sum <- runSkullA' sumA state
-    liftEff $ logShow sum
-
+batcher :: ∀ eff. Number -> Batcher eff Int Int (Array Int) (Array Int) Int
 batcher n =
-  { emptyBatch:    Nil
+  { emptyBatch:    []
   , maxBatchDelay: Just (Milliseconds n)
-  , addRequest:    \req batch -> (req : batch) /\ List.length batch
-  , getResponse:   \key batch -> fromMaybe (-1) (batch List.!! key)
-  , executeBatch:  \x -> liftEff (logShow x) $> x
+  , addRequest:    \req batch -> Array.snoc batch req /\ Array.length batch
+  , getResponse:   \key batch -> fromMaybe (-1) (batch Array.!! key)
+  , executeBatch:  pure
   }
+
+to :: Int -> Int -> Array Int
+to n m | n >= m = []
+to n m = n Array... (m - 1)
