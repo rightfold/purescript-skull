@@ -5,18 +5,19 @@ module Control.Applicative.Skull
   , requestA
   ) where
 
-import Control.Monad.Aff (Aff)
+import Control.Monad.Aff (Aff, ParAff)
 import Control.Monad.Aff.AVar (AVAR)
 import Control.Monad.Aff.Class (liftAff)
 import Control.Monad.Eff.Ref (REF)
 import Control.Monad.Reader.Class as Reader
 import Control.Monad.Reader.Trans (ReaderT, runReaderT)
+import Control.Parallel.Class (parallel, sequential)
 import Control.Skull (State, request)
 import Prelude
 
 -- | Skull applicative.
 newtype SkullA req res reqBatch resBatch key eff a =
-  SkullA (ReaderT (State req res reqBatch resBatch key eff) (Aff eff) a)
+  SkullA (ReaderT (State req res reqBatch resBatch key eff) (ParAff eff) a)
 
 derive newtype instance functorSkullA     :: Functor     (SkullA req res reqBatch resBatch key eff)
 derive newtype instance applySkullA       :: Apply       (SkullA req res reqBatch resBatch key eff)
@@ -28,11 +29,11 @@ runSkullA
    . SkullA req res reqBatch resBatch key eff a
   -> State req res reqBatch resBatch key eff
   -> Aff eff a
-runSkullA (SkullA a) s = runReaderT a s
+runSkullA (SkullA a) s = sequential $ runReaderT a s
 
 -- | Perform a request using the applicative interface.
 requestA
   :: ∀ req res reqBatch resBatch key eff
    . req
   -> SkullA req res reqBatch resBatch key (avar :: AVAR, ref :: REF | eff) res
-requestA req = SkullA $ Reader.ask >>= liftAff <<< request `flip` req
+requestA req = SkullA $ parallel $ Reader.ask >>= liftAff <<< request `flip` req
