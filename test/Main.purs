@@ -21,6 +21,7 @@ main = launchAff do
 
   for_ (0 .. 5) \i -> do
     flip parTraverse_ (0 .. 9) \j -> do
+      later' (i * j) $ pure unit
       res <- request state (10 * i + j)
       liftEff $ logShow res
     later' 250 $ pure unit
@@ -31,7 +32,7 @@ main = launchAff do
 
 batcher =
   { emptyBatch:   Nil
-  , maxBatchSize: Milliseconds 1000.0
+  , maxBatchSize: Milliseconds 22.0 -- 1000.0
   , addRequest:   \req batch -> (req : batch) /\ List.length batch
   , getResponse:  \key batch -> fromMaybe (-1) (batch List.!! key)
   , executeBatch: \x -> liftEff (logShow x) $> x
