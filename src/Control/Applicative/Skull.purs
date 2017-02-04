@@ -1,4 +1,4 @@
--- | Applicative interface for Skull.
+-- | Parallel applicative interface to Skull.
 module Control.Applicative.Skull
   ( SkullA
   , runSkullA
@@ -15,7 +15,7 @@ import Control.Parallel.Class (parallel, sequential)
 import Control.Skull (State, request)
 import Prelude
 
--- | Skull applicative.
+-- | An applicative functor that adds requests to a batch in parallel.
 newtype SkullA req res eff a =
   SkullA (ReaderT (State req res eff) (ParAff eff) a)
 
@@ -23,7 +23,7 @@ derive newtype instance functorSkullA     :: Functor     (SkullA req res eff)
 derive newtype instance applySkullA       :: Apply       (SkullA req res eff)
 derive newtype instance applicativeSkullA :: Applicative (SkullA req res eff)
 
--- | Run a Skull applicative action.
+-- | Natural transformation from `SkullA` to `Aff` using some state.
 runSkullA
   :: ∀ req res eff a
    . SkullA req res eff a
@@ -31,7 +31,7 @@ runSkullA
   -> Aff eff a
 runSkullA (SkullA a) s = sequential $ runReaderT a s
 
--- | Perform a request using the applicative interface.
+-- | Add a request to the request batch in the applicative functor.
 requestA
   :: ∀ req res eff
    . req

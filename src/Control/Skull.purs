@@ -1,4 +1,5 @@
--- | Request batching functions.
+-- | Functions for batching requests. Request batches are scheduled until
+-- | either a specified delay or an explicit flush, whichever happens first.
 module Control.Skull
   ( Batcher
 
@@ -25,12 +26,12 @@ import Unsafe.Coerce (unsafeCoerce)
 
 --------------------------------------------------------------------------------
 
--- | A batcher tells Skull how to combine requests into request batches and how
--- | to dissect response batches into responses. It also configures the delay
--- | that Skull will wait before sending the request batch.
+-- | A batcher describes four things:
 -- |
--- | If `maxBatchDelay` is `Nothing`, you must explicitly call `flush` to
--- | perform the batch when you are ready.
+-- | 1. How to batch requests.
+-- | 2. How to unbatch responses.
+-- | 3. How to execute a request batch.
+-- | 4. How long to wait before a request batch is executed.
 type Batcher req res reqBatch resBatch key eff =
   { emptyBatch    :: reqBatch
   , maxBatchDelay :: Maybe Milliseconds
@@ -41,8 +42,8 @@ type Batcher req res reqBatch resBatch key eff =
 
 --------------------------------------------------------------------------------
 
--- | `State` is a token that `request` uses to keep track of pending request
--- | batches.
+-- | A state keeps track of a request batch and maps requests to pending
+-- | invocations of `request`.
 foreign import data State :: Type -> Type -> # Effect -> Type
 
 data StateF req res reqBatch resBatch key eff =
@@ -63,15 +64,16 @@ runState
   -> a
 runState = flip unsafeCoerce
 
--- | Create new state given a batcher.
+-- | Create new state given a batcher. Use `request` to add requests to the
+-- | request batch in this state.
 newState
   :: ∀ req res reqBatch resBatch key eff eff'
    . Batcher req res reqBatch resBatch key eff
   -> Eff (ref :: REF | eff') (State req res eff)
 newState b = makeState <$> (StateF b <$> newRef b.emptyBatch <*> newRef Nil)
 
--- | Perform the pending request batch immediately. Note that this may call
--- | `executeBatch` even when there are no pending requests.
+-- | Perform the request batch immediately. Note that this may call
+-- | `executeBatch` even when the request batch is empty.
 flush
   :: ∀ req res eff
    . State req res (avar :: AVAR, ref :: REF | eff)
@@ -89,7 +91,10 @@ flush s = runState s \(StateF batcher batchRef pendingRef) -> do
 
   traverse_ (putVar `flip` resBatch) pending
 
--- | Add a new request to the pending request batch.
+-- | Add a new request to the pending request batch. This action will not
+-- | return until a response is available, hence it is important that multiple
+-- | invocations happen in parallel, either though `forkAff`, `parTraverse` and
+-- | friends, or the applicative interface in `Control.Applicative.Skull`.
 request
   :: ∀ req res eff
    . State req res (avar :: AVAR, ref :: REF | eff)
