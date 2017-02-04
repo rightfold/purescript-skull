@@ -11,7 +11,8 @@
     "purescript-foldable-traversable": "^2.1.0",
     "purescript-lists": "^3.4.0",
     "purescript-transformers": "^2.2.0",
-    "purescript-parallel": "^2.1.0"
+    "purescript-parallel": "^2.1.0",
+    "purescript-unsafe-coerce": "^2.0.0"
   },
   "devDependencies": {
     "purescript-maybe": "^2.0.1",

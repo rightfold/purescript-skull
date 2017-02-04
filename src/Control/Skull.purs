@@ -19,6 +19,7 @@ import Data.Traversable (traverse_)
 import Data.Tuple (Tuple)
 import Data.Tuple.Nested ((/\))
 import Prelude
+import Unsafe.Coerce (unsafeCoerce)
 
 --------------------------------------------------------------------------------
 
@@ -37,25 +38,40 @@ type Batcher req res reqBatch resBatch key eff =
 
 -- | `State` is a token that `request` uses to keep track of pending request
 -- | batches.
-data State req res reqBatch resBatch key eff =
-  State (Batcher req res reqBatch resBatch key eff)
-        (Ref reqBatch)
-        (Ref (List (AVar resBatch)))
+foreign import data State :: Type -> Type -> # Effect -> Type
+
+data StateF req res reqBatch resBatch key eff =
+  StateF (Batcher req res reqBatch resBatch key eff)
+         (Ref reqBatch)
+         (Ref (List (AVar resBatch)))
+
+makeState
+  :: ∀ req res reqBatch resBatch key eff
+   . StateF req res reqBatch resBatch key eff
+  -> State req res eff
+makeState = unsafeCoerce
+
+runState
+  :: ∀ req res eff a
+   . (∀ reqBatch resBatch key. StateF req res reqBatch resBatch key eff -> a)
+  -> State req res eff
+  -> a
+runState = unsafeCoerce
 
 -- | Create new state given a batcher.
 newState
   :: ∀ req res reqBatch resBatch key eff eff'
    . Batcher req res reqBatch resBatch key eff
-  -> Eff (ref :: REF | eff') (State req res reqBatch resBatch key eff)
-newState b = State b <$> newRef b.emptyBatch <*> newRef Nil
+  -> Eff (ref :: REF | eff') (State req res eff)
+newState b = makeState <$> (StateF b <$> newRef b.emptyBatch <*> newRef Nil)
 
 -- | Add a new request to the pending request batch.
 request
-  :: ∀ req res reqBatch resBatch key eff
-   . State req res reqBatch resBatch key (avar :: AVAR, ref :: REF | eff)
+  :: ∀ req res eff
+   . State req res (avar :: AVAR, ref :: REF | eff)
   -> req
   -> Aff (avar :: AVAR, ref :: REF | eff) res
-request (State batcher batchRef pendingRef) req = do
+request = flip \req -> runState \(StateF batcher batchRef pendingRef) -> do
   resBatchVar <- makeVar
 
   {key, alreadyPending} <- liftEff do
