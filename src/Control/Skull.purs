@@ -1,3 +1,4 @@
+-- | Request batching functions.
 module Control.Skull
   ( Batcher
 
@@ -21,6 +22,9 @@ import Prelude
 
 --------------------------------------------------------------------------------
 
+-- | A batcher tells Skull how to combine requests into request batches and how
+-- | to dissect response batches into responses. It also configures the delay
+-- | that Skull will wait before sending the request batch.
 type Batcher req res reqBatch resBatch key eff =
   { emptyBatch   :: reqBatch
   , maxBatchSize :: Milliseconds
@@ -31,17 +35,21 @@ type Batcher req res reqBatch resBatch key eff =
 
 --------------------------------------------------------------------------------
 
+-- | `State` is a token that `request` uses to keep track of pending request
+-- | batches.
 data State req res reqBatch resBatch key eff =
   State (Batcher req res reqBatch resBatch key eff)
         (Ref reqBatch)
         (Ref (List (AVar resBatch)))
 
+-- | Create new state given a batcher.
 newState
   :: ∀ req res reqBatch resBatch key eff eff'
    . Batcher req res reqBatch resBatch key eff
   -> Eff (ref :: REF | eff') (State req res reqBatch resBatch key eff)
 newState b = State b <$> newRef b.emptyBatch <*> newRef Nil
 
+-- | Add a new request to the pending request batch.
 request
   :: ∀ req res reqBatch resBatch key eff
    . State req res reqBatch resBatch key (avar :: AVAR, ref :: REF | eff)
