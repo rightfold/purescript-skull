@@ -7,6 +7,10 @@ are batched and performed as a single request batch.
 bower install --save purescript-skull
 ```
 
+- [GitHub](https://github.com/rightfold/purescript-skull)
+- [Pursuit](https://pursuit.purescript.org/packages/purescript-skull)
+- [Travis CI](https://travis-ci.org/rightfold/purescript-skull)
+
 ## Batching versus other approaches
 
 Consider two requests that return numbers that you want to add. The requests
