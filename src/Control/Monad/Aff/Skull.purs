@@ -1,6 +1,6 @@
 -- | Functions for batching requests. Request batches are scheduled until
 -- | either a specified delay or an explicit flush, whichever happens first.
-module Control.Skull
+module Control.Monad.Aff.Skull
   ( Batcher
 
   , State
@@ -9,7 +9,7 @@ module Control.Skull
   , request
   ) where
 
-import Control.Monad.Aff (Aff, forkAff)
+import Control.Monad.Aff (Aff, forkAff, later')
 import Control.Monad.Aff.AVar (AVAR, AVar, makeVar, putVar, takeVar)
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Class (liftEff)
@@ -126,12 +126,8 @@ request state req = runState state \(StateF batcher batchRef pendingRef) -> do
     Just delay ->
       when (not alreadyPending) $
         void $ forkAff do
-          sleep delay
+          later' (unsafeCoerce delay) (pure unit)
           flush state
 
   resBatch <- takeVar resBatchVar
   pure $ batcher.getResponse key resBatch
-
---------------------------------------------------------------------------------
-
-foreign import sleep :: ∀ eff. Milliseconds -> Aff eff Unit

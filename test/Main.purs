@@ -3,10 +3,10 @@ module Test.Main
   ) where
 
 import Control.Applicative.Skull (requestA, runSkullA, runSkullA')
+import Control.Monad.Aff.Skull (Batcher, newState, request)
 import Control.Monad.Eff.Class (liftEff)
 import Control.Monad.Eff.Random (randomInt, randomRange)
 import Control.Parallel (parTraverse_)
-import Control.Skull (Batcher, newState, request)
 import Data.Array as Array
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Time.Duration (Milliseconds(..))

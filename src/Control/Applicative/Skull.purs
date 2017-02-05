@@ -9,11 +9,11 @@ module Control.Applicative.Skull
 import Control.Monad.Aff (Aff, ParAff)
 import Control.Monad.Aff.AVar (AVAR)
 import Control.Monad.Aff.Class (liftAff)
+import Control.Monad.Aff.Skull (State, flush, request)
 import Control.Monad.Eff.Ref (REF)
 import Control.Monad.Reader.Class as Reader
 import Control.Monad.Reader.Trans (ReaderT, runReaderT)
 import Control.Parallel.Class (parallel, sequential)
-import Control.Skull (State, flush, request)
 import Prelude
 
 -- | An applicative functor that adds requests to a batch in parallel.
